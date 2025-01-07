@@ -1,0 +1,1 @@
+export interface IChat {chat: string, message: string, userId: string}

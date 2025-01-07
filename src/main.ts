@@ -2,10 +2,10 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
-import { log } from 'console';
+import { RunnableSequence } from '@langchain/core/runnables';
 
 export const VERSION = process.env.API_VERSION;
-export const CHATS : Array<{chat: string, rag: any}> = []
+export const CHATS : Array<{chat: string, rag: RunnableSequence<any, string>}> = []
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

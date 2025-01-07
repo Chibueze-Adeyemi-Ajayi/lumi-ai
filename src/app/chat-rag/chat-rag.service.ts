@@ -6,7 +6,7 @@ import { PromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { RunnablePassthrough, RunnableSequence } from "@langchain/core/runnables";
 import { formatDocumentsAsString } from "langchain/util/document";
-import { log } from "console";
+// import { log } from "console";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import axios from 'axios';
 // import fs from "fs/promises";
@@ -18,32 +18,72 @@ export class ChatRagService {
 
     private logger = new Logger(ChatRagService.name)
 
+    private async loadPdfsFromUrls(urls: string[]): Promise<any[]> {
+        try {
+            const promises = urls.map(async (url) => {
+                try {
+
+                    const response = await await axios.get(url, { responseType: 'arraybuffer' });
+
+                    this.logger.debug(`loading ${url}`)
+
+                    if (response.status !== 200) {
+                        throw new HttpException({
+                            message: `HTTP error! status: ${response.status} for URL: ${url}`
+                        }, HttpStatus.FORBIDDEN);
+                    }
+
+                    const buffer = Buffer.from(response.data),
+                        blob = new Blob([buffer], { type: "application/pdf" });;
+
+                    const loader = new PDFLoader(blob);
+                    const loaded = await loader.load();
+
+                    return loaded;
+
+                } catch (innerError) {
+                    this.logger.error(`Error loading PDF from ${url}:`, innerError);
+                    return [];
+                }
+            });
+
+            const results = await Promise.all(promises);
+            // Flatten the results array to a single array of documents
+            const final_document = results.flat();
+            // this.logger.debug({final_document})
+            return final_document;  
+        } catch (error) {
+            console.error("Error loading PDFs:", error);
+            return [];
+        }
+    }
+
     private loadDocs = async (paths: string[]) => {
         try {
 
-            let docs;
+            // let docs;
 
-            for (const path of paths) {
+            // for (const path of paths) {
 
-                const response = await axios.get(path, { responseType: 'arraybuffer' })
+            //     const response = await axios.get(path, { responseType: 'arraybuffer' })
 
-                if (response.status !== 200) throw new HttpException({ message: "Error loading document" }, HttpStatus.FORBIDDEN)
+            //     if (response.status !== 200) throw new HttpException({ message: "Error loading document" }, HttpStatus.FORBIDDEN)
 
-                const buffer = Buffer.from(response.data),
-                    blob = new Blob([buffer], { type: "application/pdf" });;
+            //     const buffer = Buffer.from(response.data),
+            //         blob = new Blob([buffer], { type: "application/pdf" });;
 
-                const loader = new PDFLoader(blob);
-                const loaded = await loader.load();
+            //     const loader = new PDFLoader(blob);
+            //     const loaded = await loader.load();
 
-                log(loaded)
+            //     log(loaded)
 
-                docs = loaded
-                
-                this.logger.debug({ docs })
+            //     docs = loaded
 
-            }
+            //     this.logger.debug({ docs })
 
-            return docs
+            // }
+
+            return await this.loadPdfsFromUrls(paths);
 
         } catch (error: any) {
             this.logger.error("Loading Document Error: ", error)
@@ -145,13 +185,10 @@ export class ChatRagService {
     public getChain = async (llm: ChatCohere, paths: string[]) => {
         let docs = await this.loadDocs(paths)
         this.logger.warn("DOCS LOADING")
-        this.logger.debug(docs)
         let vector = await this.vectorize(docs)
         this.logger.warn("VECTORIZING")
-        this.logger.debug(vector)
         let chain = await this.chain_rag(llm, vector)
         this.logger.warn("CREATING CHAIN")
-        this.logger.debug(chain)
         return chain
     }
 
