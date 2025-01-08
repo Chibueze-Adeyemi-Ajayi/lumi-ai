@@ -54,8 +54,8 @@ export class ChatService implements OnModuleInit {
         const chatcohere = new ChatCohere({
             model: "command-r",
             apiKey: process.env.COHERE_API_KEY,
-            temperature: .5,
-            maxRetries: 3
+            temperature: .7,
+            maxRetries: 5
         });
         this.llm = chatcohere;
         this.logger.debug("Done initializing LLM");
@@ -108,14 +108,20 @@ export class ChatService implements OnModuleInit {
 
         let chain = await this.chatRagService.getChain(this.llm, data.documents);
 
-        this.logger.debug("Updating Chat");
-
-        this.deleteRagByChat(CHATS, chat.id);
-
-        CHATS.push({
+        let agent_index = this.binarySearchChatWithRag(CHATS, chat.id)
+        CHATS[agent_index] = {
             chat: chat.id,
             rag: chain
-        });
+        }
+
+        this.logger.debug("Updating Chat");
+
+        // this.deleteRagByChat(CHATS, chat.id);
+
+        // CHATS.push({
+        //     chat: chat.id,
+        //     rag: chain
+        // });
 
         return {
             message: "Chat update successfully",
@@ -123,7 +129,7 @@ export class ChatService implements OnModuleInit {
         }
     }
 
-    binarySearchChatWithRag(arr: Array<{chat: string, rag: RunnableSequence<any, string>}>, targetChat: string): number | -1 {
+    binarySearchChatWithRag(arr: Array<{ chat: string, rag: RunnableSequence<any, string> }>, targetChat: string): number | -1 {
 
         let left = 0;
         let right = arr.length - 1;
@@ -133,18 +139,18 @@ export class ChatService implements OnModuleInit {
             const mid = Math.floor((left + right) / 2);
 
             if (arr[mid].chat.toLowerCase() === targetChat.toLowerCase()) {
-                return mid; 
+                return mid;
             }
 
             if (arr[mid].chat.toLowerCase() < targetChat.toLowerCase()) {
-                left = mid + 1; 
+                left = mid + 1;
             } else {
-                right = mid - 1; 
+                right = mid - 1;
             }
 
         }
 
-        return -1; 
+        return -1;
 
     }
 
@@ -162,8 +168,14 @@ export class ChatService implements OnModuleInit {
         this.logger.debug(`Agent index ${agent_index}`)
 
         const agent = CHATS[agent_index]["rag"];
+        let chats = _chat.chats;
 
-        let res = await agent.invoke(message)
+        let res = await agent.invoke(`${message} <history>${chats.reverse().toString()}</history>`);
+        (<any>chats).push({
+            user: message, ai: res
+        })
+
+        await this.chat.findByIdAndUpdate(_chat.id, { chats })
 
         return {
             response: res,
