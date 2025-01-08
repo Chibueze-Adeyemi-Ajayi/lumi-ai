@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Chat, ChatDocument } from './chat.schema/chat.schema';
 import { Model } from 'mongoose';
@@ -9,7 +9,7 @@ import { ChatRagService } from '../chat-rag/chat-rag.service';
 import { MediaService } from '../media/media.service';
 import { CHATS } from 'src/main';
 import { RunnableSequence } from '@langchain/core/runnables';
-import { IChat } from 'src/chat/chat.gateway/chat.gateway.interface';
+import { IChat } from 'src/chat-gateway/chat.gateway/chat.gateway.interface';
 
 @Injectable()
 export class ChatService implements OnModuleInit {
@@ -26,6 +26,10 @@ export class ChatService implements OnModuleInit {
     async onModuleInit() {
         this.initLLM();
         await this.loadChats();
+    }
+
+    async getChat(id: string) {
+        return this.chat.findById(id);
     }
 
     private async loadChats() {
@@ -65,7 +69,7 @@ export class ChatService implements OnModuleInit {
         if (!await this.chat.findByIdAndDelete(id)) throw new HttpException({ reason: "Unable to delete this chat" }, HttpStatus.FORBIDDEN);
         return {
             message: "Chat successfully deleted",
-            data: []
+            data: await this.allChats(user)
         }
     }
 
@@ -93,7 +97,7 @@ export class ChatService implements OnModuleInit {
         }
     }
 
-    private async deleteRagByChat(arr: Array<{chat: string, rag: RunnableSequence<any, string>}>, chatToDelete: string) {
+    private async deleteRagByChat(arr: Array<{ chat: string, rag: RunnableSequence<any, string> }>, chatToDelete: string) {
         const newArray = arr.filter(obj => obj.chat !== chatToDelete);
         return newArray;
     }
@@ -113,17 +117,59 @@ export class ChatService implements OnModuleInit {
             rag: chain
         });
 
-        return { 
+        return {
             message: "Chat update successfully",
             data
         }
     }
 
-    async handleConversations (data: IChat) : Promise<{response: string, status: string}> {
+    binarySearchChatWithRag(arr: Array<{chat: string, rag: RunnableSequence<any, string>}>, targetChat: string): number | -1 {
+
+        let left = 0;
+        let right = arr.length - 1;
+
+        while (left <= right) {
+
+            const mid = Math.floor((left + right) / 2);
+
+            if (arr[mid].chat.toLowerCase() === targetChat.toLowerCase()) {
+                return mid; 
+            }
+
+            if (arr[mid].chat.toLowerCase() < targetChat.toLowerCase()) {
+                left = mid + 1; 
+            } else {
+                right = mid - 1; 
+            }
+
+        }
+
+        return -1; 
+
+    }
+
+    async handleConversations(data: IChat): Promise<{ response: string, status: string }> {
+
+        let { userId, chat, message } = data;
+        let _chat = await this.chat.findById(chat);
+
+        if (!_chat) throw new NotFoundException({ message: "This chat id doesn't exist" });
+        if (_chat.userId.toString() != userId) throw new ForbiddenException({ message: "Unable to engage in this conversation" });
+        if (!message || message == "" || message.replace(" ", "").length < 1) throw new ForbiddenException({ message: "Can't send message" });
+
+        let agent_index = this.binarySearchChatWithRag(CHATS, chat)
+
+        this.logger.debug(`Agent index ${agent_index}`)
+
+        const agent = CHATS[agent_index]["rag"];
+
+        let res = await agent.invoke(message)
+
         return {
-            response: "Thank you for messaging",
+            response: res,
             status: "Successful"
         }
+
     }
 
 }

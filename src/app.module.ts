@@ -9,8 +9,8 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { MediaModule } from './app/media/media.module';
 import { ChatModule } from './app/chat/chat.module';
 import { ChatRagModule } from './app/chat-rag/chat-rag.module';
-import { ChatGateway } from './chat/chat.gateway';
-import { WSChatModule } from './chat/chat.module';
+import { WSChatGateway } from './chat-gateway/chat.gateway';
+import { ChatGatewayModule } from './chat-gateway/chat.gateway.module';
 
 @Module({
   imports: [
@@ -33,11 +33,11 @@ import { WSChatModule } from './chat/chat.module';
       limit: 10,
     }]),
 
-    UserModule, 
-    ModelModule, MediaModule, ChatModule, ChatRagModule, WSChatModule
+    UserModule, ModelModule, MediaModule, 
+    ChatModule, ChatRagModule, ChatGatewayModule
     
   ], 
   controllers: [AppController], 
-  providers: [AppService, ChatGateway/*, EventsGateway*/],
+  providers: [AppService, WSChatGateway/*, EventsGateway*/],
 })
 export class AppModule {}
