@@ -90,29 +90,29 @@ export class ChatService implements OnModuleInit {
         return docxElements;
     }
 
-    private async createWordDocumentFromText(text: string): Promise<Buffer | null> {
+    private async createWordDocumentFromText(text: string): Promise<String | null> {
         try {
             const doc = new Document({
                 styles: {
                     paragraphStyles: [
                         {
-                        id: "normal",
-                        name: "Normal",
-                        basedOn: "Normal",
-                        next: "Normal",
-                        uiPriority: 10,
-                        run: {
-                            font: "Times New Roman",
-                            size: 24, // Half-point size (12pt font)
-                            color: "000000", // Black
-                        },
-                        paragraph: {
-                            spacing: {
-                                line: 480, // 24 * 20 = 480 (2.0 line spacing)
+                            id: "normal",
+                            name: "Normal",
+                            basedOn: "Normal",
+                            next: "Normal",
+                            uiPriority: 10,
+                            run: {
+                                font: "Times New Roman",
+                                size: 24, // Half-point size (12pt font)
+                                color: "000000", // Black
                             },
-                            alignment: "both",
-                        },
-                    }
+                            paragraph: {
+                                spacing: {
+                                    line: 480, // 24 * 20 = 480 (2.0 line spacing)
+                                },
+                                alignment: "both",
+                            },
+                        }
                     ]
                 },
                 sections: [{
@@ -130,9 +130,9 @@ export class ChatService implements OnModuleInit {
                 }],
             });
 
-            return await Packer.toBuffer(doc);
+            return (await Packer.toBuffer(doc)).toString("base64");
         } catch (error) {
-            console.error("Error creating document:", error);
+            this.logger.error("Error creating document:", error);
             return null;
         }
     }
@@ -225,6 +225,23 @@ export class ChatService implements OnModuleInit {
         return text.trim();
     }
 
+    // private async convertDocxToHtml(docxPath) {
+    //     try {
+    //         const result = await mammoth.convertToHtml({ path: docxPath });
+    //         const html = result.value; // The generated HTML
+    //         const messages = result.messages; // Any messages from the conversion
+
+    //         if (messages.length > 0) {
+    //             console.warn("Conversion messages:", messages)
+    //         }
+
+    //         return html;
+    //     } catch (error) {
+    //         console.error("Error converting docx to html:", error);
+    //         return null;
+    //     }
+    // }
+
     async handleCustomConversations(data: IChat, template_id: string, client: Socket) {
 
         let { userId, chat, message } = data;
@@ -247,18 +264,21 @@ export class ChatService implements OnModuleInit {
         for (const step of steps) {
             let { name, prompt, length } = step;
             this.logger.debug(`Prompting step: ${name}`);
-            let content = await agent.invoke(`${prompt}`);
-            content = this.cleanText(content);
-            let data = { content, section: this.createWordDocumentFromText(name) }
+            let _content = await agent.invoke(`${prompt}`);
+            _content = this.cleanText(_content);
+            const docx = await this.createWordDocumentFromText(_content)
+            let data = { section: name, content: _content, docx }
             client.emit("response", data);
-            responses.push(content);
+            responses.push(_content);
         }
 
         // let res = await agent.invoke(`${message} <history>${chats.reverse().toString()}</history>`);
         const flattened_response = responses.flat(Infinity);
         // log(flattened_response);
         (<any>chats).push({
-            user: message, ai: flattened_response
+            user: message, 
+            ai: flattened_response, 
+            docx: await this.createWordDocumentFromText(flattened_response[0])
         });
 
         // let docs = await this.chatRagService.raw_docs(_chat)
@@ -267,6 +287,7 @@ export class ChatService implements OnModuleInit {
 
         return {
             response: responses,
+            docx: await this.createWordDocumentFromText(flattened_response[0]),
             status: "Successful"
         }
 
