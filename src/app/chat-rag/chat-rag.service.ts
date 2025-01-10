@@ -9,9 +9,13 @@ import { formatDocumentsAsString } from "langchain/util/document";
 // import { log } from "console";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import axios from 'axios';
+import { Chat } from '../chat/chat.schema/chat.schema';
+import { promptTemplates, templates } from '../chat/chat.prompts/chat.prompt';
+
 // import fs from "fs/promises";
 
 const fs = require("fs")
+const pdf = require("pdf-parse")
 
 @Injectable()
 export class ChatRagService {
@@ -51,7 +55,7 @@ export class ChatRagService {
             // Flatten the results array to a single array of documents
             const final_document = results.flat();
             // this.logger.debug({final_document})
-            return final_document;  
+            return final_document;
         } catch (error) {
             console.error("Error loading PDFs:", error);
             return [];
@@ -125,23 +129,14 @@ export class ChatRagService {
 
                 # Instruction\n
                 Your task is to answer the question using the following pieces of retrieved context delimited by XML tags.\n\n
-                <retrieved context>\nRetrieved Context:\n{context}\n</retrieved context>
-                If the user is following basic conversations, I mean something like greeting. Kindly respond, and end your
-                response tailored to how you are pleased to help the user with the their research project.
-                Also, craft your response to follow the pattern that, you are delighted to serve your user with the best
-                user experience as a project assistant. Be grateful and express how glad you are feeling to serve them after every end of conversation.
-                You can't handle anything related to dispute resolution or complaints. Whenever the user query looks like
-                one, kindly, gently, and in soft tone express your sad feeling of there situation, also stating that you
-                can bring them new piece of joy by helping them with their final year project.
-                Your response should be explanative, elaborative conveying all necessary informations that is around the context of the asked question, and it should
-                be brief, avoid negative, and abusive words.
-                \n\n\n
+                The retrieved context is a document uploaded by the user prompting the model\n\n
+                <retrieved context>\nRetrieved Context:\n{context}\n</retrieved context>\n\n\n
 
                 #Attention\n
-                Ensure your response is comprehensive enough as you are a technical report writing assistant.
-                Your response must be plain text alone, and must address each and every need of the question asked.
-                When responding, if the history is empty include greetings otherwise go straight to the elaborate and comprehensive point.
-                This means do not include responses like 'certainly!, I am ready to', just go straight to your answer.
+                Ensure your response is comprehensive enough as you are a technical report writing assistant.\n\n
+                Your response must be plain text alone, and must address each and every need of the question asked following university education standard.\n\n
+                When responding, if the history is empty include greetings otherwise go straight to the elaborate and comprehensive point.\n\n
+                This means do not include responses like 'certainly!, I am ready to', when the history is not empty just go straight to your answer.\n\n
 
                 # Constraint\n
                 1. Think deeply and multiple times about the user's question\\nUser's question:\\n{question}\\nYou must 
@@ -152,17 +147,14 @@ export class ChatRagService {
                 retrieved context and use it to generate an answer.\n
                 3. Generate a concise, logical answer. When generating the answer, Do Not just list your selections, 
                 But rearrange them in context so that they become paragraphs with a natural flow. \n
-                4. When you don't have retrieved context for the question or If you have a retrieved documents, but 
-                their content is irrelevant to the question, you should answer 'I can't find the answer to that question 
-                in the material I have, but you can always assist them while they shop'.\n
-                5. Use two sentences maximum. Keep the answer concise but logical/natural/in-depth.\n\n\n
+                5. Do not say things like 'am glad to' or anything of its kind, go straight to the answer from your context\n
 
                 # Question:\n{question}
 
                 #Tone\n
                 Ensure you respond in an educationally professional manner`
             })
- 
+
             const ragChain = RunnableSequence.from([
                 {
                     context: retriever.pipe(formatDocumentsAsString),
@@ -190,19 +182,50 @@ export class ChatRagService {
         return chain
     }
 
+    async raw_docs(chat: Chat) {
+        let documents = chat.documents;
+        try {
+            const promises = documents.map(async (url) => {
+                try {
+
+                    const response = await await axios.get(url, { responseType: 'arraybuffer' });
+
+                    this.logger.debug(`loading ${url}`)
+
+                    if (response.status !== 200) {
+                        throw new HttpException({
+                            message: `HTTP error! status: ${response.status} for URL: ${url}`
+                        }, HttpStatus.FORBIDDEN);
+                    }
+
+                    const buffer = Buffer.from(response.data);
+                    let docs = await pdf(buffer);
+
+                    return docs;
+
+                } catch (innerError) {
+                    this.logger.error(`Error loading PDF from ${url}:`, innerError);
+                    return [];
+                }
+            });
+
+            const results = await Promise.all(promises);
+            // Flatten the results array to a single array of documents
+            const final_document = results.flat();
+            // this.logger.debug({final_document})
+            return final_document;
+        } catch (error) {
+            console.error("Error loading PDFs:", error);
+            return [];
+        }
+    }
+
     public invoke = async (query: string, chain: RunnableSequence) => {
         return await chain.invoke(query)
     }
 
     public async allTemplates() {
-        return {
-            "literature-review": [
-                {
-                    name: "Dummy name",
-                    id: ""
-                }
-            ]
-        }
+        return templates
     }
 
 }

@@ -10,6 +10,9 @@ import { MediaService } from '../media/media.service';
 import { CHATS } from 'src/main';
 import { RunnableSequence } from '@langchain/core/runnables';
 import { IChat } from 'src/chat-gateway/chat.gateway/chat.gateway.interface';
+import { promptTemplates } from './chat.prompts/chat.prompt';
+import { Socket } from 'socket.io';
+import { log } from 'console';
 
 @Injectable()
 export class ChatService implements OnModuleInit {
@@ -154,7 +157,61 @@ export class ChatService implements OnModuleInit {
 
     }
 
-    async handleConversations(data: IChat): Promise<{ response: string, status: string }> {
+    private cleanText(text: string): string {
+        text = text.replace(/^#+\s/gm, '');
+        text = text.replace(/<[^>]*>/g, '');
+        text = text.replace(/\n+/g, '\n');
+        return text.trim();
+    }
+
+    async handleCustomConversations(data: IChat, template_id: string, client: Socket) {
+
+        let { userId, chat, message } = data;
+        let _chat = await this.chat.findById(chat);
+
+        if (!_chat) throw new NotFoundException({ message: "This chat id doesn't exist" });
+        if (_chat.userId.toString() != userId) throw new ForbiddenException({ message: "Unable to engage in this conversation" });
+
+        let template = promptTemplates[`${template_id}`];
+        if (!template) throw new NotFoundException({ message: "Template not implemented yet" });
+        let steps = template[0]["steps"]; const responses = [];
+
+        let agent_index = this.binarySearchChatWithRag(CHATS, chat)
+
+        this.logger.debug(`Agent index ${agent_index}`)
+
+        const agent = CHATS[agent_index]["rag"];
+        let chats = _chat.chats;
+
+        for (const step of steps) {
+            let { name, prompt, length } = step;
+            this.logger.debug(`Prompting step: ${name}`);
+            let content = await agent.invoke(`${prompt}`);
+            content = this.cleanText(content);
+            let data = { content, section: name }
+            client.emit("response", data);
+            responses.push(content);
+        }
+
+        // let res = await agent.invoke(`${message} <history>${chats.reverse().toString()}</history>`);
+        const flattened_response = responses.flat(Infinity);
+        // log(flattened_response);
+        (<any>chats).push({
+            user: message, ai: flattened_response
+        });
+
+        // let docs = await this.chatRagService.raw_docs(_chat)
+
+        // await this.chat.findByIdAndUpdate(_chat.id, { chats })
+
+        return {
+            response: responses,
+            status: "Successful"
+        }
+
+    }
+
+    async handleConversations(data: IChat): Promise<{ response: string | any[], status: string }> {
 
         let { userId, chat, message } = data;
         let _chat = await this.chat.findById(chat);
@@ -174,8 +231,9 @@ export class ChatService implements OnModuleInit {
         (<any>chats).push({
             user: message, ai: res
         })
+        // let docs = await this.chatRagService.raw_docs(_chat)
 
-        await this.chat.findByIdAndUpdate(_chat.id, { chats })
+        // await this.chat.findByIdAndUpdate(_chat.id, { chats })
 
         return {
             response: res,

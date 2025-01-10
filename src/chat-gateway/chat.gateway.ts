@@ -28,10 +28,10 @@ export class WSChatGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   @WebSocketServer()
   server: Server;
-  
+
   private logger = new Logger(WSChatGateway.name);
 
-  constructor( 
+  constructor(
     @Inject() private readonly chatService: ChatService,
     @Inject() private readonly userService: UserService,
     // @InjectModel(ChatGateway.name) private readonly chatGateway: Model<ChatGatewayDocument>
@@ -46,12 +46,15 @@ export class WSChatGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     try {
       this.logger.debug(`New message received: ${payload.chat} - ${payload.message}`);
       // AI processing
-      let data = await this.chatService.handleConversations(payload)
+      let data = payload.custom ?
+        await this.chatService.handleCustomConversations(payload, payload.custom, client) :
+        await this.chatService.handleConversations(payload);
+
       client.emit("response", data);
     } catch (error) {
       this.logger.error(error);
       throw new WsException(error);
-    } 
+    }
   }
 
   @SubscribeMessage('joinRoom')
