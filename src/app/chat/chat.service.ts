@@ -12,7 +12,7 @@ import { RunnableSequence } from '@langchain/core/runnables';
 import { IChat } from 'src/chat-gateway/chat.gateway/chat.gateway.interface';
 import { promptTemplates } from './chat.prompts/chat.prompt';
 import { Socket } from 'socket.io';
-import { log } from 'console';
+import { Document, Packer, Paragraph, TextRun, AlignmentType } from 'docx';
 
 @Injectable()
 export class ChatService implements OnModuleInit {
@@ -73,6 +73,67 @@ export class ChatService implements OnModuleInit {
         return {
             message: "Chat successfully deleted",
             data: await this.allChats(user)
+        }
+    }
+
+    private parseTextToDocx(text: string): any[] {
+        const docxElements: any[] = [];
+        const paragraphs = text.split(/\n+/); // Split by one or more newlines
+
+        for (const paragraphText of paragraphs) {
+            if (paragraphText.trim() !== "") { // Skip empty paragraphs
+                docxElements.push(new Paragraph({
+                    children: [new TextRun(paragraphText.trim())],
+                }));
+            }
+        }
+        return docxElements;
+    }
+
+    private async createWordDocumentFromText(text: string): Promise<Buffer | null> {
+        try {
+            const doc = new Document({
+                styles: {
+                    paragraphStyles: [
+                        {
+                        id: "normal",
+                        name: "Normal",
+                        basedOn: "Normal",
+                        next: "Normal",
+                        uiPriority: 10,
+                        run: {
+                            font: "Times New Roman",
+                            size: 24, // Half-point size (12pt font)
+                            color: "000000", // Black
+                        },
+                        paragraph: {
+                            spacing: {
+                                line: 480, // 24 * 20 = 480 (2.0 line spacing)
+                            },
+                            alignment: "both",
+                        },
+                    }
+                    ]
+                },
+                sections: [{
+                    properties: {
+                        page: {
+                            margin: {
+                                top: "5cm",
+                                bottom: "5cm",
+                                left: "5cm",
+                                right: "5cm"
+                            }
+                        }
+                    },
+                    children: this.parseTextToDocx(text),
+                }],
+            });
+
+            return await Packer.toBuffer(doc);
+        } catch (error) {
+            console.error("Error creating document:", error);
+            return null;
         }
     }
 
@@ -160,7 +221,7 @@ export class ChatService implements OnModuleInit {
     private cleanText(text: string): string {
         text = text.replace(/^#+\s/gm, '');
         text = text.replace(/<[^>]*>/g, '');
-        text = text.replace(/\n+/g, '\n');
+        text = text.replace(/\n+/g, `<br>`);
         return text.trim();
     }
 
@@ -188,7 +249,7 @@ export class ChatService implements OnModuleInit {
             this.logger.debug(`Prompting step: ${name}`);
             let content = await agent.invoke(`${prompt}`);
             content = this.cleanText(content);
-            let data = { content, section: name }
+            let data = { content, section: this.createWordDocumentFromText(name) }
             client.emit("response", data);
             responses.push(content);
         }
